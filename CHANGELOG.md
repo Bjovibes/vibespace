@@ -22,6 +22,17 @@ Format: Keep a Changelog-ish. Dates are local (2026-09-26 = initial build day).
   never leaves Claude Code. The chip looks the same (2026-11-06).
 
 ### Fixed
+- **Zoom in works on Windows, and macOS gets zoom keys for the first time.**
+  The app sets no menu on Windows, so Electron's default menu supplied the zoom
+  roles, and its zoomIn accelerator `CommandOrControl+Plus` matches no physical
+  key (unshifted `=` and Shift+= both miss it; electron/electron#29996, #15496).
+  Ctrl+minus zoomed out in -0.5 steps and nothing could zoom back in, so a
+  window that ever zoomed out was stuck small. `harden()` now owns the zoom
+  keys in the main process: Ctrl+= / Ctrl+Shift+= / numpad + zoom in,
+  Ctrl+- / numpad minus out, Ctrl+0 reset, matched on `input.key` and
+  layout-independent `input.code`, with an AltGr guard so typed characters are
+  never hijacked. macOS gains Cmd +/-/0, respecting the Cmd-only shortcut rule
+  (2026-11-24).
 - **An expired claude.ai login no longer attracts agents to a dead account.**
   When the login session hit its time limit ("Login reached its time limit ·
   Please run /login", StopFailure `error=authentication_failed`, seen live

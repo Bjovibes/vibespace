@@ -468,6 +468,33 @@ function securePrefs(preload) {
 function harden(win) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => { if (e.url.startsWith('http')) { e.preventDefault(); shell.openExternal(e.url); } });
+  // Own the zoom keys. On Windows the app sets no menu, so Electron's default
+  // menu supplies the zoom roles - and its zoomIn accelerator
+  // 'CommandOrControl+Plus' never matches a physical key (unshifted '=' and
+  // Shift+= both miss it; electron/electron#29996, #15496). Ctrl+- zoomed out
+  // (menu zoomOut role, -0.5 zoom level per press) with no key able to zoom
+  // back in - "zoomed out and stuck", unreadable UI. Handle all zoom keys in
+  // the main process instead: same +/-0.5 steps the menu roles use, Ctrl+0
+  // reset, matched on both input.key and layout-independent input.code (the
+  // BG-layout lesson from common.js keyLetter). preventDefault also keeps the
+  // default-menu zoom roles from double-firing. Covers launcher and
+  // workspace windows; on macOS this adds Cmd+/-/0, which the app menu
+  // never had zoom roles for either.
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    const ctrl = input.control || input.ctrlKey || input.meta || input.metaKey;
+    if (!ctrl || input.alt || input.altKey) return; // AltGr = Ctrl+Alt: never hijack typed chars
+    const k = input.key, c = input.code;
+    const zoomIn = k === '=' || k === '+' || k === 'Add' || c === 'Equal' || c === 'NumpadAdd';
+    const zoomOut = k === '-' || k === 'Subtract' || c === 'Minus' || c === 'NumpadSubtract';
+    const reset = k === '0' || c === 'Digit0' || c === 'Numpad0';
+    if (!zoomIn && !zoomOut && !reset) return;
+    const wc = win.webContents;
+    if (zoomIn) wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+    else if (zoomOut) wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+    else wc.setZoomLevel(0);
+    e.preventDefault();
+  });
 }
 
 // macOS app menu. Without an Edit menu of role items, Cmd+C/V/X/A/Z do nothing
