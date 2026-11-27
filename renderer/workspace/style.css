@@ -1169,3 +1169,19 @@ body.dragging #split-v, body.dragging #split-h { background: color-mix(in srgb, 
   .ib-body { flex-direction: column; }
   .ib-list { flex: 0 0 40%; max-width: none; min-width: 0; }
 }
+
+/* ---------- pane fold/unfold ---------- */
+/* preview folded: only its header bar stays; the terminal pane takes the room */
+#viewer.folded { flex: 0 0 auto; min-height: 0; min-width: 0; }
+#viewer.folded #file-tabbar,
+#viewer.folded #diff-host,
+#viewer.folded #monaco-host,
+#viewer.folded #media-host,
+#viewer.folded #viewer-placeholder { display: none; }
+#content.viewer-folded #split-h { display: none; }
+#content.viewer-folded #terms-pane { flex: 1 1 auto; }
+/* sidebar folded: Files / Git / Search fully out; the topbar « / » button brings it back */
+#body.side-folded #tree-pane { width: 0 !important; min-width: 0; border-right: none; }
+#body.side-folded #split-v { display: none; }
+#btn-side-toggle { padding: 4px 9px; font-size: 13px; line-height: 1; }
+#btn-fold-viewer { font-size: 12px; }

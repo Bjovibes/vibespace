@@ -5,6 +5,13 @@ Format: Keep a Changelog-ish. Dates are local (2026-09-26 = initial build day).
 ## [Unreleased]
 
 ### Added
+- **Foldable preview and sidebar.** The file preview folds down to its header
+  bar with a `⌃ Fold` button next to Diff (the terminal pane gets all the
+  room; the button reads `⌄ Open` while folded), and the left sidebar
+  (Files / Git / Search) folds away completely with a `«` button in the top
+  bar (`»` brings it back). Both folds are saved per workspace, a folded pane
+  never persists its collapsed size, and anything that opens into the preview
+  (tree click, finder, Diff, file:line links) unfolds it first (2026-11-27).
 - **Ready for strangers.** A new README for people who have never seen VibeSpace,
   a PRIVACY.md that lists everything it changes on your system and every
   address it contacts (checked against the code), no personal or client names

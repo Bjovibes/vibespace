@@ -21,6 +21,8 @@ let state = {};
 
 function persistNow() {
   if (!ws) return Promise.resolve(false);
+  const sideFolded = $('#body').classList.contains('side-folded');
+  const viewerFolded = $('#content').classList.contains('viewer-folded');
   const termsRect = $('#terms-pane').getBoundingClientRect();
   return vs.saveState(wsId, {
     terminals: terms.snapshot(),
@@ -34,11 +36,13 @@ function persistNow() {
     gitFetch: $('#git-fetch').checked,
     theme: state.theme || 'vibespace',
     termPosition: state.termPosition || 'bottom',
-    treeWidth: $('#tree-pane').getBoundingClientRect().width,
+    treeWidth: sideFolded ? (state.treeWidth || 260) : $('#tree-pane').getBoundingClientRect().width, // folded reads 0 px — keep the last real size
     expandedFolders: tree.expandedPaths(),
     sideView,
-    termHeight: Math.round(termsRect.height),
-    termWidth: Math.round(termsRect.width),
+    termHeight: viewerFolded ? (state.termHeight || 380) : Math.round(termsRect.height),
+    termWidth: viewerFolded ? (state.termWidth || 560) : Math.round(termsRect.width),
+    viewerFolded,
+    sideFolded,
     viewer: viewer.snapshot(),
   });
 }
@@ -194,6 +198,44 @@ function wireLayoutToggle() {
   });
 }
 
+// ---------- pane fold/unfold ----------
+// Two folds, both persisted per workspace: the file preview folds down to its
+// header bar (the terminal pane gets the room) and the sidebar (Files / Git /
+// Search) folds away completely (the topbar « / » button brings it back).
+// Folds only toggle classes — the terms pane keeps its inline flex-basis and
+// grows through a stylesheet rule, so unfolding restores the exact pre-fold
+// split, and a folded pane never persists its collapsed size.
+function isViewerFolded() { return $('#content').classList.contains('viewer-folded'); }
+function isSideFolded() { return $('#body').classList.contains('side-folded'); }
+function setViewerFolded(on, { save = true } = {}) {
+  $('#content').classList.toggle('viewer-folded', on);
+  $('#viewer').classList.toggle('folded', on);
+  const b = $('#btn-fold-viewer');
+  b.textContent = on ? '⌄ Open' : '⌃ Fold';
+  b.title = on
+    ? 'Unfold the file preview (bring it back over the terminals)'
+    : 'Fold the preview down — the terminal pane gets all the room';
+  if (save) persist();
+}
+function setSideFolded(on, { save = true } = {}) {
+  $('#body').classList.toggle('side-folded', on);
+  const b = $('#btn-side-toggle');
+  b.textContent = on ? '»' : '«';
+  b.title = on
+    ? 'Show the sidebar (files, Git, search)'
+    : 'Hide the sidebar (files, Git, search) — the chat gets the full width';
+  if (save) persist();
+}
+// anything that opens into the preview unfolds it first, so a click never
+// lands in an invisible pane
+function unfoldViewer() { if (isViewerFolded()) setViewerFolded(false, { save: false }); }
+function wireFolds() {
+  $('#btn-fold-viewer').onclick = () => setViewerFolded(!isViewerFolded());
+  $('#btn-side-toggle').onclick = () => setSideFolded(!isSideFolded());
+  setViewerFolded(Boolean(state.viewerFolded), { save: false });
+  setSideFolded(Boolean(state.sideFolded), { save: false });
+}
+
 function wireSplitters() {
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
   const dragStart = { treeW: 0, termW: 0, termH: 0 };
@@ -279,6 +321,7 @@ function setSideView(v, { save = true } = {}) {
 // Diff button / branch chip / tree "Git history": show the Git view in a mode.
 // Hitting the same entry point again while that mode shows goes back to Files.
 function openGitPane(mode, filter) {
+  unfoldViewer(); // the Diff view lives in the preview — never open it into a folded pane
   if (filter === undefined && sideView === 'git' && diffpane.currentMode() === mode) { setSideView('files'); return; }
   diffpane.prepare(mode, filter);
   if (sideView !== 'git') setSideView('git'); // showSidebar applies what prepare recorded
@@ -407,6 +450,7 @@ async function main() {
   if (typeof state.wtCopyEnv === 'boolean') $('#wt-copy-env').checked = state.wtCopyEnv;
   if (typeof state.gitFetch === 'boolean') $('#git-fetch').checked = state.gitFetch;
   if (state.treeWidth) $('#tree-pane').style.width = state.treeWidth + 'px';
+  wireFolds();
   applyTermPosition();
   wireLayoutToggle();
   prefs.init({
@@ -419,7 +463,7 @@ async function main() {
   viewer.init(persist);
   viewer.restore(state.viewer?.openFiles || [], state.viewer?.activePath);
   // git diff review pane: pinned "Changes" tab + Diff toolbar button
-  diffpane.init(ws.repoPath, { open: (p, n) => viewer.open(p, n), showEditor: () => viewer.showChangesTab() });
+  diffpane.init(ws.repoPath, { open: (p, n) => { unfoldViewer(); viewer.open(p, n); }, showEditor: () => { unfoldViewer(); viewer.showChangesTab(); } });
   viewer.setPinnedTab('Diff', (on) => (on ? diffpane.show() : diffpane.hide()));
   $('#btn-diff').onclick = () => openGitPane('changes');
   for (const b of document.querySelectorAll('#side-tabs button')) b.onclick = () => setSideView(b.dataset.side);
@@ -428,14 +472,14 @@ async function main() {
   // Search tab + Ctrl+Shift+F (ui/search.js); a hit opens in the preview at the match
   search.init({
     show: () => setSideView('search'),
-    openAt: (p, n, line, col, len) => viewer.openAt(p, n, line, col, len),
+    openAt: (p, n, line, col, len) => { unfoldViewer(); viewer.openAt(p, n, line, col, len); },
     selection: () => viewer.selectionText(),
     focusTerminal: () => { const id = terms.activeTermId(); if (id) terms.activate(id); },
   });
   // second tree:changed subscriber alongside tree.js — preload wraps each cb in its
   // own ipcRenderer.on listener, so both fire
   vs.onTreeChanged(() => viewer.onFilesChanged());
-  tree.init(ws.repoPath, (path, name) => viewer.open(path, name), state.expandedFolders, {
+  tree.init(ws.repoPath, (path, name) => { unfoldViewer(); viewer.open(path, name); }, state.expandedFolders, {
     // tabs are keyed by fsList/fsRead paths (backslashes); the tree joins with '/'
     // (a Mac's paths already use '/')
     onRename: (from, to) => (isMac() ? viewer.renameTab(from, to) : viewer.renameTab(from.replace(/\//g, '\\'), to.replace(/\//g, '\\'))),
@@ -449,7 +493,7 @@ async function main() {
       }
     },
   });
-  finder.init(ws.repoPath, (path, name) => viewer.open(path, name));
+  finder.init(ws.repoPath, (path, name) => { unfoldViewer(); viewer.open(path, name); });
 
   const shot = new URLSearchParams(location.search).get('shot');
   limits.init(wsId); // 5h/7d plan-limit chip (claude data feed)
@@ -457,7 +501,7 @@ async function main() {
   terms.init({
     wsId,
     repoPath: ws.repoPath,
-    openFile: (p, n, l) => viewer.openAt(p, n, l), // file:line links → preview
+    openFile: (p, n, l) => { unfoldViewer(); viewer.openAt(p, n, l); }, // file:line links → preview (unfolds a folded preview)
     savedTerminals: state.terminals,
     savedParked: state.parked,
     savedCloud: state.cloud,
